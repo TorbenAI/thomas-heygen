@@ -4,17 +4,16 @@ This project demonstrates an interactive avatar powered by Heygen and Claude AI.
 
 ## Prerequisites
 
-- Node.js (v14 or later)
-- npm (v6 or later)
 - An OpenAI API key
 - A Heygen API key
+- An Claude API key
 
 ## Setup
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/thomas-heygen-demo.git
-   cd thomas-heygen-demo
+   git clone https://github.com/TorbenAI/thomas-heygen.git
+   cd thomas-heygen
    ```
 
 2. Install dependencies:
@@ -26,6 +25,7 @@ This project demonstrates an interactive avatar powered by Heygen and Claude AI.
    ```
    OPENAI_API_KEY=your_openai_api_key_here
    HEYGEN_API_KEY=your_heygen_api_key_here
+   CLAUDE_API_KEY=your_claude_api_key_here
    ```
 
 ## Running the project
