@@ -64,7 +64,7 @@ export default function StreamingAvatar() {
       const res = await avatar.current.createStartAvatar(
         {
           newSessionRequest: {
-            quality: "low",
+            quality: "high",
             avatarName: PRE_CONFIGURED_AVATAR_ID,
             voice: { voiceId: PRE_CONFIGURED_VOICE_ID },
           },
@@ -138,50 +138,53 @@ export default function StreamingAvatar() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
-      const punctuation = [".", "!", "?"];
-
-      const speakChunk = async (text: string) => {
-        try {
-          await avatar.current!.speak({
-            taskRequest: { text, sessionId: data?.sessionId },
-          });
-          await new Promise((resolve) => setTimeout(resolve, 200));
-        } catch (error) {
-          console.error("Error speaking chunk:", error);
-          setDebug("Error speaking chunk");
-        }
-      };
+      let accumulatedText = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        const chunk = decoder.decode(value, { stream: true });
+        accumulatedText += chunk;
 
-        let lastIndex = 0;
-        for (let i = 0; i < buffer.length; i++) {
-          if (punctuation.includes(buffer[i])) {
-            const chunk = buffer.slice(lastIndex, i + 1).trim();
-            if (chunk.length > 0) {
-              await speakChunk(chunk);
-            }
-            lastIndex = i + 1;
+        // Split the accumulated text into sentences
+        const sentences = accumulatedText.match(/[^.!?]+[.!?]+/g) || [];
+
+        if (sentences.length > 0) {
+          // Speak the complete sentences
+          for (const sentence of sentences) {
+            await speakText(sentence.trim());
           }
+
+          // Keep any remaining incomplete sentence
+          accumulatedText = accumulatedText.slice(sentences.join('').length);
         }
-
-        buffer = buffer.slice(lastIndex);
       }
 
-      if (buffer.length > 0) {
-        await speakChunk(buffer.trim());
+      // Speak any remaining text
+      if (accumulatedText.trim()) {
+        await speakText(accumulatedText.trim());
       }
+
     } catch (error) {
       console.error("Error processing chat:", error);
       setDebug(`Error processing chat request: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      setInput(""); // Clear the input after sending the message
+      setInput("");
       setIsLoadingChat(false);
+    }
+  }
+
+  async function speakText(text: string) {
+    if (!avatar.current || !data?.sessionId) return;
+
+    try {
+      await avatar.current.speak({
+        taskRequest: { text, sessionId: data.sessionId },
+      });
+    } catch (error) {
+      console.error("Error speaking text:", error);
+      setDebug("Error speaking text");
     }
   }
 
