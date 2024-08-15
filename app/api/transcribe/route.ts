@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import formidable from 'formidable';
-import fs from 'fs';
 
 export const config = {
   api: {
@@ -13,6 +11,7 @@ export async function POST(req: NextRequest) {
   const file = formData.get('file') as File | null;
 
   if (!file) {
+    console.error('No file uploaded');
     return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
   }
 
@@ -20,17 +19,27 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
+    const openaiFormData = new FormData();
+    openaiFormData.append('file', new Blob([buffer], { type: file.type }), file.name);
+    openaiFormData.append('model', 'whisper-1');
+
+    console.log('Sending request to OpenAI API');
+    console.log('File name:', file.name);
+    console.log('File type:', file.type);
+    console.log('File size:', file.size);
+
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'multipart/form-data',
       },
-      body: createFormData(buffer, file.name),
+      body: openaiFormData,
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI API responded with ${response.status}`);
+      const errorText = await response.text();
+      console.error(`OpenAI API responded with ${response.status}:`, errorText);
+      return NextResponse.json({ error: `OpenAI API error: ${errorText}` }, { status: response.status });
     }
 
     const data = await response.json();
@@ -39,12 +48,4 @@ export async function POST(req: NextRequest) {
     console.error('Error calling Whisper API:', error);
     return NextResponse.json({ error: 'Error transcribing audio' }, { status: 500 });
   }
-}
-
-function createFormData(buffer: Buffer, filename: string) {
-  const form = new FormData();
-  const blob = new Blob([buffer], { type: 'audio/wav' });
-  form.append('file', blob, filename);
-  form.append('model', 'whisper-1');
-  return form;
 }

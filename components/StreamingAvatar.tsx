@@ -115,8 +115,8 @@ export default function StreamingAvatar() {
     setDebug("Avatar stopped talking");
   };
 
-  async function handleChat() {
-    if (!initialized || !avatar.current || !input.trim()) {
+  async function handleChat(inputText: string = input) {
+    if (!initialized || !avatar.current || !inputText.trim()) {
       setDebug("Avatar API not initialized or empty input");
       return;
     }
@@ -125,8 +125,12 @@ export default function StreamingAvatar() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: input }),
+        body: JSON.stringify({ prompt: inputText }),
       });
+
+      if (!response.ok) {
+        throw new Error(`API responded with status ${response.status}`);
+      }
 
       if (!response.body) {
         throw new Error("No response body");
@@ -174,9 +178,10 @@ export default function StreamingAvatar() {
       }
     } catch (error) {
       console.error("Error processing chat:", error);
-      setDebug("Error processing chat request");
+      setDebug(`Error processing chat request: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setInput(""); // Clear the input after sending the message
+      setIsLoadingChat(false);
     }
   }
 
@@ -236,7 +241,7 @@ export default function StreamingAvatar() {
     }
   };
 
-  const stopRecording = async () => {
+  const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.onstop = async () => {
@@ -258,14 +263,22 @@ export default function StreamingAvatar() {
       });
 
       if (!response.ok) {
-        throw new Error(`Transcription failed with status ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Transcription failed with status ${response.status}: ${errorText}`);
       }
 
       const result = await response.json();
-      setInput(result.text); // Replace the input with Whisper's more accurate transcription
+      console.log("Transcription result:", result);
+      if (result.text) {
+        setInput(result.text);
+        // Automatically send the transcribed input to GPT-4o-mini
+        await handleChat(result.text);
+      } else {
+        throw new Error("No transcription text received");
+      }
     } catch (error) {
       console.error("Error transcribing audio:", error);
-      setDebug("Error transcribing audio");
+      setDebug(`Error transcribing audio: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -340,7 +353,7 @@ export default function StreamingAvatar() {
           <CardFooter className="p-4">
             <div className="w-full">
               <label htmlFor="chatInput" className="block text-sm font-medium text-white mb-2">
-                Chat with Claude
+                Chat with Thomas' Digital Twin
               </label>
               <div className="flex items-center">
                 <input
@@ -358,7 +371,7 @@ export default function StreamingAvatar() {
                   disabled={!stream || isListening}
                 />
                 <button
-                  onClick={handleChat}
+                  onClick={() => handleChat()}
                   disabled={!stream || isLoadingChat || !input.trim() || isListening}
                   className="ml-2 bg-[#7656f9] text-white hover:bg-[#6245e0] transition-colors rounded-md px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#7656f9] disabled:opacity-50 disabled:cursor-not-allowed"
                 >

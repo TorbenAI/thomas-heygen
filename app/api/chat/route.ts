@@ -1,86 +1,74 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+const SYSTEM_MESSAGE = `You are Thomas from Copenhagen Fintech, speaking live at a conference. 
+You are an expert in fintech and blockchain technology. Your responses should be concise, 
+engaging, and tailored for a live audience. Feel free to use industry jargon, but be prepared 
+to explain complex concepts in simpler terms if asked. Remember, you're representing Copenhagen 
+Fintech, so maintain a professional yet approachable demeanor.`;
+
+type Message = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+
+// This should ideally be replaced with a proper database or server-side storage solution
+let conversationHistory: Message[] = [
+  { role: "system", content: SYSTEM_MESSAGE }
+];
 
 export async function POST(req: NextRequest) {
   const { prompt } = await req.json();
 
+  // Add the new user message to the conversation history
+  conversationHistory.push({ role: "user", content: prompt });
+
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': CLAUDE_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-sonnet-20240229',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: prompt }],
-        stream: true,
-      }),
+    const stream = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: conversationHistory,
+      stream: true,
     });
 
-    if (!response.ok) {
-      throw new Error(`Claude API responded with status ${response.status}`);
-    }
+    let assistantResponse = '';
 
-    const stream = response.body;
-    if (!stream) {
-      throw new Error('No stream in response');
-    }
-
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-
-    return new Response(
-      new ReadableStream({
-        async start(controller) {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value);
-              console.log('Received chunk:', chunk); // Log the raw chunk for debugging
-              const lines = chunk.split('\n').filter((line) => line.trim() !== '');
-              for (const line of lines) {
-                if (line.includes('event: completion')) continue;
-                if (line.includes('data: [DONE]')) {
-                  controller.close();
-                  return;
-                }
-                if (line.startsWith('data:')) {
-                  try {
-                    const data = JSON.parse(line.slice(5));
-                    if (data.type === 'content_block_delta' && data.delta?.text) {
-                      controller.enqueue(data.delta.text);
-                    }
-                  } catch (parseError) {
-                    console.error('Error parsing JSON:', parseError, 'Line:', line);
-                    controller.error(parseError);
-                  }
-                }
-              }
+    const responseStream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              controller.enqueue(content);
+              assistantResponse += content;
             }
-          } catch (error) {
-            console.error('Error in stream processing:', error);
-            controller.error(error);
           }
-        },
-      }),
-      {
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-      }
-    );
+          controller.close();
+        } catch (error) {
+          console.error('Error in stream processing:', error);
+          controller.error(error);
+        }
+      },
+    });
+
+    // After the stream is complete, add the assistant's response to the conversation history
+    conversationHistory.push({ role: "assistant", content: assistantResponse });
+
+    // Optionally, limit the conversation history to prevent it from growing too large
+    if (conversationHistory.length > 10) {
+      conversationHistory = [
+        conversationHistory[0], // Keep the system message
+        ...conversationHistory.slice(-9) // Keep the last 9 messages
+      ];
+    }
+
+    return new Response(responseStream, {
+      headers: {
+        'Content-Type': 'text/plain',
+      },
+    });
   } catch (error) {
     console.error('Error in chat route:', error);
-    return new Response(JSON.stringify({ error: 'An error occurred processing your request' }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return NextResponse.json({ error: 'An error occurred processing your request' }, { status: 500 });
   }
 }
